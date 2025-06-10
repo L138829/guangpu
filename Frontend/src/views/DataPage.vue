@@ -25,6 +25,18 @@
           <el-button slot="append" icon="el-icon-search" @click="handleSearch" />
         </el-input>
       </div>
+      <!-- 上传间隔 -->
+       <div class="mt-10">
+         <el-form-item label="上传间隔 (s)">
+           <el-input-number
+             v-model="uploadInterval"
+             :min="20"
+             :max="3600"
+             :step="10"
+             controls-position="right"
+           />
+         </el-form-item>
+       </div>
 
       <div class="mt-20">属性</div>
       <el-menu
@@ -142,6 +154,8 @@ export default {
     return {
       viewMode: 'list',           // 'list' or 'grid'
       filters: { event: '', name: '' },
+      // 新增：上传间隔，单位秒，最小20，最大3600
+      uploadInterval: 20,
       pager: { current: 1 },
       listPageSize: 8,            // 列表每页固定 8 条
       allData: [],                // 渲染用的数据数组
@@ -184,41 +198,92 @@ export default {
     }
   },
   methods: {
+    // =========== 列表／筛选／分页 相关 =============
     handleSearch() {
-      this.pager.current = 1
+      this.pager.current = 1;
     },
     onMetricSelect(name) {
-      this.filters.name = name
-      this.pager.current = 1
+      this.filters.name = name;
+      this.pager.current = 1;
     },
     handlePageChange(page) {
-      this.pager.current = page
+      this.pager.current = page;
     },
 
-    // —— 以下为新增，用于处理后端推送的解析结果 —— //
+    // =========== 上传间隔控制 相关 =============
+    /** 启动或重启上传定时器 */
+    startUploadTimer() {
+      // 如果已有定时器，先清除
+      if (this._uploadTimer) {
+        clearInterval(this._uploadTimer);
+      }
+      // 使用当前 uploadInterval（秒）创建新定时任务
+      this._uploadTimer = setInterval(() => {
+        this.pushData();
+      }, this.uploadInterval * 1000);
+    },
 
+    /** 真正执行一次数据推送 */
+    pushData() {
+      // TODO: 根据你的后端接口，发送 this.allData
+      // 例如 axios.post('/api/upload', { data: this.allData })
+      console.log('推送数据：', this.allData);
+    },
+
+    /** 当用户修改上传间隔后调用 */
+    updateInterval(newInterval) {
+      // （可选）先通知后端
+      // axios.post('/api/config', { uploadInterval: newInterval });
+
+      // 重启本地定时器
+      this.startUploadTimer();
+      console.log(`已将上传间隔设置为 ${newInterval} 秒`);
+    },
+
+    // =========== 后端推送解析 相关 =============
     /** 将后端 JSON 转为 allData 数组 */
     transformParsed(parsed) {
-      const arr = []
+      const arr = [];
       Object.keys(this.fieldMap).forEach(key => {
         if (parsed[key] !== undefined) {
-          const { label, unit } = this.fieldMap[key]
+          const { label, unit } = this.fieldMap[key];
           arr.push({
             id: key,
             name: label,
             value: parsed[key],
             unit,
             updateTime: this.formatTime(parsed.time)
-          })
+          });
         }
-      })
-      this.allData = arr
+      });
+      this.allData = arr;
     },
+
     /** 格式化后端返回的时间戳 */
     formatTime(ts) {
-      const y = ts.slice(0,4), m = ts.slice(4,6), d = ts.slice(6,8)
-      const H = ts.slice(8,10), M = ts.slice(10,12), S = ts.slice(12,14)
-      return `${y}-${m}-${d} ${H}:${M}:${S}`
+      const y = ts.slice(0,4), m = ts.slice(4,6), d = ts.slice(6,8);
+      const H = ts.slice(8,10), M = ts.slice(10,12), S = ts.slice(12,14);
+      return `${y}-${m}-${d} ${H}:${M}:${S}`;
+    }
+  },
+
+  watch: {
+    // 监听 uploadInterval 的变化
+    uploadInterval(val) {
+      this.updateInterval(val);
+    }
+  },
+
+  mounted() {
+    // 页面加载后，先启动一次默认定时器
+    this.startUploadTimer();
+    // … 其它 mounted 逻辑 …
+  },
+
+  beforeDestroy() {
+    // 组件销毁前清理定时器
+    if (this._uploadTimer) {
+      clearInterval(this._uploadTimer);
     }
   },
   mounted() {
@@ -236,7 +301,9 @@ export default {
       { id: 10, name: 'PH', value: 8.58, unit: '', updateTime: '2025-06-10 13:20:54' },
       { id: 11, name: '高锰酸钾指数', value: 2.06, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' },
       { id: 12, name: '浊度', value: 43.55, unit: 'FTU', updateTime: '2025-06-10 13:20:54' },
-      { id: 13, name: 'fui水色指数', value: 10, unit: '', updateTime: '2025-06-10 13:20:54' }
+      { id: 13, name: 'fui水色指数', value: 10, unit: '', updateTime: '2025-06-10 13:20:54' },
+      { id: 14, name: '透明度', value: 1.2, unit: 'm', updateTime: '2025-06-10 13:20:54' },
+      { id: 15, name: '悬浮物浓度', value: 15.8, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' }
     ];
   }
 }
