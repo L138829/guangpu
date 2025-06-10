@@ -152,18 +152,18 @@ export default {
   name: 'DataDashboard',
   data() {
     return {
-      viewMode: 'list',           // 'list' or 'grid'
+      viewMode: 'list',
       filters: { event: '', name: '' },
-      // 新增：上传间隔，单位秒，最小20，最大3600
-      uploadInterval: 20,
+      uploadInterval: 20,      // 上传间隔（秒）
       pager: { current: 1 },
-      listPageSize: 8,            // 列表每页固定 8 条
-      allData: [],                // 渲染用的数据数组
+      listPageSize: 8,
+      allData: [],             // 当前展示数据
+      baselineData: [],        // 原始基准值，用于计算波动
       metricsList: [
         '溶解氧','总磷','叶绿素','地表水水质','黑臭水体状态','富营养状态',
         '总氮','氨氮','化学需氧量','PH','高锰酸钾指数','浊度'
       ],
-      fieldMap: {                 // 后端字段到展示名称/单位映射
+      fieldMap: {
         Chla:     { label: '叶绿素',    unit: 'µg/L' },
         TP:       { label: '总磷',      unit: 'mg/L' },
         COD:      { label: '化学需氧量', unit: 'mg/L' },
@@ -177,6 +177,7 @@ export default {
       }
     }
   },
+
   computed: {
     filteredData() {
       return this.allData.filter(item => {
@@ -197,117 +198,97 @@ export default {
       return arr
     }
   },
+
   methods: {
-    // =========== 列表／筛选／分页 相关 =============
-    handleSearch() {
-      this.pager.current = 1;
-    },
-    onMetricSelect(name) {
-      this.filters.name = name;
-      this.pager.current = 1;
-    },
-    handlePageChange(page) {
-      this.pager.current = page;
-    },
+    handleSearch() { this.pager.current = 1 },
+    onMetricSelect(name) { this.filters.name = name; this.pager.current = 1 },
+    handlePageChange(page) { this.pager.current = page },
 
-    // =========== 上传间隔控制 相关 =============
-    /** 启动或重启上传定时器 */
+    // 启动定时器
     startUploadTimer() {
-      // 如果已有定时器，先清除
-      if (this._uploadTimer) {
-        clearInterval(this._uploadTimer);
-      }
-      // 使用当前 uploadInterval（秒）创建新定时任务
-      this._uploadTimer = setInterval(() => {
-        this.pushData();
-      }, this.uploadInterval * 1000);
+      if (this._uploadTimer) clearInterval(this._uploadTimer)
+      this._uploadTimer = setInterval(() => this.pushData(), this.uploadInterval * 1000)
     },
 
-    /** 真正执行一次数据推送 */
+    // 每次调用：±5% 波动 + 更新为“当前北京时间”
     pushData() {
-      // TODO: 根据你的后端接口，发送 this.allData
-      // 例如 axios.post('/api/upload', { data: this.allData })
-      console.log('推送数据：', this.allData);
-    },
+      const bjNow = this.getBeijingTime()
+      const formatted = this.formatDateTime(bjNow)
 
-    /** 当用户修改上传间隔后调用 */
-    updateInterval(newInterval) {
-      // （可选）先通知后端
-      // axios.post('/api/config', { uploadInterval: newInterval });
-
-      // 重启本地定时器
-      this.startUploadTimer();
-      console.log(`已将上传间隔设置为 ${newInterval} 秒`);
-    },
-
-    // =========== 后端推送解析 相关 =============
-    /** 将后端 JSON 转为 allData 数组 */
-    transformParsed(parsed) {
-      const arr = [];
-      Object.keys(this.fieldMap).forEach(key => {
-        if (parsed[key] !== undefined) {
-          const { label, unit } = this.fieldMap[key];
-          arr.push({
-            id: key,
-            name: label,
-            value: parsed[key],
-            unit,
-            updateTime: this.formatTime(parsed.time)
-          });
+      this.allData.forEach((item, idx) => {
+        const base = this.baselineData[idx].value
+        const fluct = (Math.random() * 2 - 1) * 0.05 * base  // ±5%
+        if (typeof base === 'number') {
+          item.value = Number((base + fluct).toFixed(3))
         }
-      });
-      this.allData = arr;
+        item.updateTime = formatted
+      })
+
+      console.log('模拟推送：', this.allData)
+      // 如果要发给后端：axios.post('/api/upload', { data: this.allData })
     },
 
-    /** 格式化后端返回的时间戳 */
-    formatTime(ts) {
-      const y = ts.slice(0,4), m = ts.slice(4,6), d = ts.slice(6,8);
-      const H = ts.slice(8,10), M = ts.slice(10,12), S = ts.slice(12,14);
-      return `${y}-${m}-${d} ${H}:${M}:${S}`;
+    // 获取当前“北京时间” Date 对象
+    getBeijingTime() {
+      const local = new Date()
+      const utc = local.getTime() + (local.getTimezoneOffset() * 60000)
+      return new Date(utc + 8 * 3600000)
+    },
+
+    // 将 Date 格式化成 "YYYY-MM-DD HH:mm:ss"
+    formatDateTime(date) {
+      const pad = n => String(n).padStart(2, '0')
+      return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}`
+           + ` ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+    },
+
+    updateInterval() {
+      this.startUploadTimer()
+      console.log(`上传间隔已更新为 ${this.uploadInterval} 秒`)
     }
   },
 
   watch: {
-    // 监听 uploadInterval 的变化
-    uploadInterval(val) {
-      this.updateInterval(val);
-    }
+    uploadInterval() { this.updateInterval() }
   },
 
   mounted() {
-    // 页面加载后，先启动一次默认定时器
-    this.startUploadTimer();
-    // … 其它 mounted 逻辑 …
+    // 1. 初始化 allData（示例数据）
+    this.allData = [
+      { id: 1,  name: '溶解氧',     value: 11.03, unit: 'mg/L', updateTime: '' },
+      { id: 2,  name: '总磷',       value: 0.0291,unit: 'mg/L', updateTime: '' },
+      { id: 3,  name: '叶绿素',     value: 11.35, unit: 'µg/L',updateTime: '' },
+      { id: 4,  name: '地表水水质', value: '2类水', unit: '',   updateTime: '' },
+      { id: 5,  name: '黑臭水体状态', value: '非黑臭水体', unit: '', updateTime: '' },
+      { id: 6,  name: '富营养状态', value: '贫营养状态', unit: '', updateTime: '' },
+      { id: 7,  name: '总氮',       value: 0.847, unit: 'mg/L', updateTime: '' },
+      { id: 8,  name: '氨氮',       value: 0.304, unit: 'mg/L', updateTime: '' },
+      { id: 9,  name: '化学需氧量', value: 7.101,unit: 'mg/L', updateTime: '' },
+      { id:10,  name: 'PH',         value: 8.58,  unit: '',      updateTime: '' },
+      { id:11,  name: '高锰酸钾指数', value: 2.06, unit: 'mg/L', updateTime: '' },
+      { id:12,  name: '浊度',       value: 43.55, unit: 'FTU',   updateTime: '' },
+      { id:13,  name: 'fui水色指数', value: 10,   unit: '',      updateTime: '' },
+      { id:14,  name: '透明度',     value: 1.2,   unit: 'm',     updateTime: '' },
+      { id:15,  name: '悬浮物浓度', value: 15.8,  unit: 'mg/L', updateTime: '' }
+    ]
+
+    // 2. 记录基准值
+    this.baselineData = this.allData.map(item => ({ id: item.id, value: item.value }))
+
+    // 3. 一上来先立即推一次，让页面立刻显示时间和波动
+    this.pushData()
+
+    // 4. 启动定时器
+    this.startUploadTimer()
   },
 
   beforeDestroy() {
-    // 组件销毁前清理定时器
-    if (this._uploadTimer) {
-      clearInterval(this._uploadTimer);
-    }
-  },
-  mounted() {
-    // 使用假数据替代后端数据接收逻辑
-    this.allData = [
-      { id: 1, name: '溶解氧', value: 11.03, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' },
-      { id: 2, name: '总磷', value: 0.0291, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' },
-      { id: 3, name: '叶绿素', value: 11.35, unit: 'µg/L', updateTime: '2025-06-10 13:20:54' },
-      { id: 4, name: '地表水水质', value: '2类水', unit: '', updateTime: '2025-06-10 13:20:54' },
-      { id: 5, name: '黑臭水体状态', value: '非黑臭水体', unit: '', updateTime: '2025-06-10 13:20:54' },
-      { id: 6, name: '富营养状态', value: '贫营养状态', unit: '', updateTime: '2025-06-10 13:20:54' },
-      { id: 7, name: '总氮', value: 0.847, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' },
-      { id: 8, name: '氨氮', value: 0.304, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' },
-      { id: 9, name: '化学需氧量', value: 7.101, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' },
-      { id: 10, name: 'PH', value: 8.58, unit: '', updateTime: '2025-06-10 13:20:54' },
-      { id: 11, name: '高锰酸钾指数', value: 2.06, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' },
-      { id: 12, name: '浊度', value: 43.55, unit: 'FTU', updateTime: '2025-06-10 13:20:54' },
-      { id: 13, name: 'fui水色指数', value: 10, unit: '', updateTime: '2025-06-10 13:20:54' },
-      { id: 14, name: '透明度', value: 1.2, unit: 'm', updateTime: '2025-06-10 13:20:54' },
-      { id: 15, name: '悬浮物浓度', value: 15.8, unit: 'mg/L', updateTime: '2025-06-10 13:20:54' }
-    ];
+    if (this._uploadTimer) clearInterval(this._uploadTimer)
   }
 }
 </script>
+
+
 
 <style scoped>
 .dashboard { display: flex; height: 100%; }
